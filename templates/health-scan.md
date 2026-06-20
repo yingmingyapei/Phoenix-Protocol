@@ -5,36 +5,55 @@
 ## 检测步骤
 
 ### 1. Cron 健康检查
-```
-cronjob(action='list')
+```bash
+hermes cron list
 ```
 逐个检查：
-- 连续失败 ≥ 3 次 → 标记为 HIGH
-- 超时率 > 50% → 标记为 MEDIUM
-- 最近一次运行 > 48 小时前（对 recurring job）→ 标记为 MEDIUM
+- last_status = error → 检查 `hermes logs errors --since "3d"` 判断是否连续失败
+- 最近一次运行 > 48 小时前（对 daily/更频繁的 recurring job）→ 标记为 MEDIUM
+- weekly/monthly job 按其周期判断，不套用 48h 规则
+
+**注意**：无法获取 run history，连续失败判断依赖日志搜索。如果日志中同一 job 出现 ≥3 次 error → HIGH。
+
+### 1b. WSL Gateway 连续性检查（WSL 环境必做）
+```bash
+# Gateway 进程启动时间
+GWAY_PID=$(pgrep -f "hermes.*gateway" | head -1)
+ps -o lstart= -p $GWAY_PID 2>/dev/null
+# 系统启动时间 + 最近重启记录
+uptime
+last reboot | head -5
+```
+**判断规则**：
+- Gateway 不存在 → HIGH（所有 cron job 都不会执行）
+- Gateway 启动时间 晚于 系统启动时间 → MEDIUM（曾经中断，可能漏跑）
+- 系统有多次重启记录（>2次/天）→ MEDIUM（WSL 不稳定，漏跑风险高）
+- 对比高频 job 的 last_run 时间 vs Gateway 启动时间：last_run 早于 Gateway 启动 = 确认漏跑
 
 ### 2. 系统依赖检查
-```
-terminal: python3 -c "import numpy; print(numpy.__version__)"
-terminal: uv --version
-terminal: hermes --version 2>/dev/null || echo "hermes version unknown"
+```bash
+python3 -c "import numpy; print(numpy.__version__)"
+uv --version
 ```
 任何依赖缺失 → 标记为 HIGH
 
 ### 3. 记忆一致性
+```bash
+# fact_store CLI 不可用，跳过此项
+# 如需手动检查：python3 -c "import sqlite3; ..."
+echo "[SKIP] fact_store not available as CLI"
 ```
-fact_store(action='contradict')
-```
-发现矛盾（contradiction_score > 0.7）→ 标记为 MEDIUM
+标记为 N/A，不作为阻断项。
 
 ## 自动修复规则
 
 | 问题类型 | 置信度 | 自动修复动作 |
 |----------|--------|-------------|
-| Cron prompt 过时 | ≥0.7 | cronjob update 同步最新 prompt |
-| 依赖缺失 | ≥0.8 | uv pip install |
-| 记忆矛盾 | ≥0.6 | 标记低信任条目为 unhelpful |
-| Cron 连续失败 | ≥0.6 | 分析日志，尝试修复根因 |
+| Cron prompt 过时 | ≥0.7 | `hermes cron edit <job_id> --prompt '...'` |
+| 依赖缺失 | ≥0.8 | `uv pip install` |
+| 记忆矛盾 | ≥0.6 | N/A（CLI 不可用） |
+| Script 路径错误 | ≥0.8 | 修复 symlink 或更新 cron script 路径 |
+| Cron 连续失败 | ≥0.6 | 分析日志 + 测试脚本，尝试修复根因 |
 
 ## 输出格式
 

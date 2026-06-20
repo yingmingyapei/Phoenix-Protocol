@@ -78,6 +78,14 @@
 - **修复**: context_length=50000, compression.threshold=0.25
 - **教训**: 不同模型的 token 承载能力差异巨大
 
+### CRON-004: WSL 重启后 Gateway 静默消失（2026-06-14）
+- **症状**: 高频 cron job 连续多天未运行，last_status 仍为 ok，手动触发正常
+- **根因**: WSL 重启后 hermes gateway 进程未自动恢复，cron scheduler 不在
+- **诊断**: `ps -o lstart= -p <gateway_pid>` vs `last reboot` 对比时间差
+- **修复**: 注册 systemd user service 或 bashrc 兜底启动
+- **教训**: WSL 不是 7×24 环境，时间敏感 job 必须有自启动保护
+- **影响**: 全部 active cron jobs（非单个 job 问题）
+
 ### NET-001: Groq API 被 Cloudflare 封锁
 - **症状**: Groq API 直连返回 403
 - **根因**: Cloudflare 封锁 WSL IP
